@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bike Auctions</title>
+<style>:root{--bg:#f6f7f9;--c:#fff;--t:#16181d;--m:#667085;--a:#e4572e;--b:#e3e6eb}@media(prefers-color-scheme:dark){:root{--bg:#121316;--c:#1b1d22;--t:#f1f2f4;--m:#9aa1ad;--b:#2b2f36}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t)}header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--c);border-bottom:1px solid var(--b)}
+main{max-width:1000px;margin:auto;padding:20px}.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:16px}
+.price{font-size:26px;font-weight:700}.m{color:var(--m);font-size:13px}.tag{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--b)}.live{background:#d1fadf;color:#05603a}
+input,button{font:inherit;padding:9px 12px;border-radius:8px;border:1px solid var(--b);background:var(--c);color:var(--t)}button{background:var(--a);color:#fff;border:0;cursor:pointer}
+.row{display:flex;gap:8px;margin-top:10px}.row input{flex:1;min-width:0}#msg{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--t);color:var(--bg);padding:10px 16px;border-radius:8px;display:none}.flash{animation:f .8s}@keyframes f{from{background:#fde7d9}}</style></head><body>
+<header><b>🏍️ Bike Auctions</b><div id="who"></div></header><main>
+<section id="login" class="card" style="max-width:360px;margin-bottom:20px"><b>Sign in or register</b><div class="row"><input id="em" type="email" placeholder="Email" autocomplete="username"></div>
+<div class="row"><input id="pw" type="password" placeholder="Password (min 8)" autocomplete="current-password"></div><div class="row"><button onclick="auth('login')">Log in</button><button onclick="auth('register')" style="background:var(--m)">Register</button></div></section>
+<section id="admin" class="card" style="display:none;margin-bottom:20px"><b>New auction (admin)</b><div class="row"><input id="nt" placeholder="Title"><input id="np" type="number" placeholder="Start ₹"></div><div class="row"><input id="ni" type="number" placeholder="Min increment ₹" value="1000"><input id="nd" type="number" placeholder="Duration (min)" value="60"><button onclick="create()">Create</button></div></section>
+<div class="grid" id="list" aria-live="polite"></div></main><div id="msg" role="status"></div>
+<script>
+let tok=sessionStorage.tok,role=sessionStorage.role;const $=id=>document.getElementById(id),fmt=n=>'₹'+n.toLocaleString('en-IN'),esc=s=>s.replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';');
+const toast=t=>{const m=$('msg');m.textContent=t;m.style.display='block';setTimeout(()=>m.style.display='none',3000)};
+async function api(p,method='GET',body){const r=await fetch('/api'+p,{method,headers:{'content-type':'application/json',...(tok&&{authorization:'Bearer '+tok})},body:body&&JSON.stringify(body)});const j=await r.json();if(!r.ok)throw new Error(j.message||(j.details||[]).join(', ')||j.error);return j}
+async function auth(k){try{const j=await api('/auth/'+k,'POST',{email:$('em').value,password:$('pw').value});tok=sessionStorage.tok=j.token;role=sessionStorage.role=j.role;ui()}catch(e){toast(e.message)}}
+function ui(){$('login').style.display=tok?'none':'';$('admin').style.display=role==='admin'?'':'none';$('who').innerHTML=tok?`${role} <button onclick="sessionStorage.clear();location.reload()">Log out</button>`:''}
+async function create(){const n=Date.now();try{await api('/auctions','POST',{title:$('nt').value,startPrice:+$('np').value,minIncrement:+$('ni').value,startsAt:n,endsAt:n+$('nd').value*60000});toast('Created')}catch(e){toast(e.message)}}
+async function bid(id){try{await api(`/auctions/${id}/bids`,'POST',{amount:+$('b'+id).value})}catch(e){toast(tok?e.message:'Please log in to bid')}}
+function card(a){const next=a.bidCount?a.currentPrice+a.minIncrement:a.startPrice;return `<div class="card" id="c${a.id}"><span class="tag ${a.status==='live'?'live':''}">${a.status}</span><h3>${esc(a.title)}</h3><div class="price">${fmt(a.currentPrice)}</div>
+<div class="m">${a.bidCount} bids · <span data-end="${a.endsAt}"></span></div><div class="m">${a.recent.slice(0,3).map(b=>esc(b.bidder)+' '+fmt(b.amount)).join(' · ')}</div>
+${a.status==='live'?`<div class="row"><input id="b${a.id}" type="number" value="${next}" min="${next}" step="${a.minIncrement}" aria-label="Bid amount"><button onclick="bid('${a.id}')">Bid</button></div>`:''}</div>`}
+function render(a){const el=$('c'+a.id),h=card(a);if(el){el.outerHTML=h;$('c'+a.id).classList.add('flash')}else $('list').insertAdjacentHTML('afterbegin',h)}
+setInterval(()=>document.querySelectorAll('[data-end]').forEach(s=>{const d=s.dataset.end-Date.now();s.textContent=d>0?`ends in ${Math.floor(d/3600000)}h ${Math.floor(d%3600000/60000)}m ${Math.floor(d%60000/1000)}s`:'ended'}),1000);
+function connect(){const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onmessage=e=>{const m=JSON.parse(e.data);render(m.auction);if(m.type==='ended')toast(`${m.auction.title} ended`+(m.winner?` – won by ${m.winner}`:''))};ws.onclose=()=>setTimeout(()=>{load();connect()},2000)}
+async function load(){(await api('/auctions')).forEach(render)}
+ui();load();connect();
+</script></body></html>
